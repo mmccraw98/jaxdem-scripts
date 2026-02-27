@@ -23,10 +23,12 @@ class JobConfig:
 
 def run_1(state, system, output_dir, config, save_strides = None, compress = True, save_fn = None, save_all = False):
     """
-    Compress a system by a small increment while controlling the temperature with a rescaling thermostat.
+    Compress a system of rigid clumps by a small increment while controlling the temperature with a rescaling thermostat.
     Allow the system to relax under the thermostat.
     Remove the thermostat and run NVE dynamics for 10x longer than the preliminary protocol.
-    Save the data and calculate correlation functions FOR 2D ROTATIONS ONLY!
+    Save the data and calculate correlation functions.
+    IMPORTANT: rotational correlations assume 2D dynamics only!
+    IMPORTANT: rotational correlations assume 1:1.4 bidispersity
     """
     if save_all and save_fn is not None:
         raise ValueError('Got incompatible arguments: save_fn passed but save_all is True')

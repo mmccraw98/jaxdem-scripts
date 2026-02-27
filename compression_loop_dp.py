@@ -8,7 +8,7 @@ import os
 
 from dataclasses import dataclass
 
-from correlations import get_pseudo_log_bins_from_steps, translational_correlations, rotational_correlations_2d
+from correlations import get_pseudo_log_bins_from_steps, translational_correlations
 
 @dataclass
 class JobConfig:
@@ -22,6 +22,14 @@ class JobConfig:
     reset_save_decade: int = 100_000  # reset the logarithmic saving scheme each of these decades
 
 def run_1(state, system, output_dir, config, save_strides = None, compress = True, save_fn = None, save_all = False):
+    """
+    Compress a system of deformable particles by a small increment while controlling the temperature with a rescaling thermostat.
+    Allow the system to relax under the thermostat.
+    Remove the thermostat and run NVE dynamics for 10x longer than the preliminary protocol.
+    Save the data and calculate correlation functions.
+    IMPORTANT: rotational correlations assume 2D dynamics only!
+    IMPORTANT: rotational correlations assume 1:1.4 bidispersity
+    """
     if save_all and save_fn is not None:
         raise ValueError('Got incompatible arguments: save_fn passed but save_all is True')
     
