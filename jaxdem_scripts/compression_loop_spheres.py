@@ -8,7 +8,7 @@ import os
 
 from dataclasses import dataclass
 
-from correlations import get_pseudo_log_bins_from_steps, translational_correlations
+from .correlations import get_pseudo_log_bins_from_steps, translational_correlations
 
 @dataclass
 class JobConfig:

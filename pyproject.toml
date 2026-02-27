@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jaxdem-scripts"
+version = "0.1.0"
+description = "Simulation scripts for JAX-based DEM compression loops and analysis"
+requires-python = ">=3.9"
+dependencies = [
+    "jax",
+    "jaxlib",
+    "numpy",
+    "scipy",
+    "tqdm",
+    "jaxdem",
+]
+
+[tool.setuptools.packages.find]
+include = ["jaxdem_scripts*"]
