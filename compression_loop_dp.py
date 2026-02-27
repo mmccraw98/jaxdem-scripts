@@ -129,11 +129,12 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     # calculate the correlation functions for each size
     bins, t = get_pseudo_log_bins_from_steps(data['step_count'], system.dt)
     corrs = {'t': t}
-    _, nv = jnp.unique(state.clump_id[jnp.argsort(state.unique_id)], return_counts=True)
+    _, nv = jnp.unique(bond_id_sorted, return_counts=True)  # vertices per DP
     for _nv, name, diam in zip([min(nv), max(nv)], ['small', 'large'], [1.0, 1.4]):
         mask = nv == _nv
+        vertex_mask = mask[bond_id_sorted]
         corrs.update(translational_correlations(data['pos_dp'][:, mask], diam, bins, name_suffix=f'_{name}'))
-        corrs.update(translational_correlations(data['pos'][:, mask], diam, bins, name_suffix=f'_vertex_{name}'))
+        corrs.update(translational_correlations(data['pos'][:, vertex_mask], diam, bins, name_suffix=f'_vertex_{name}'))
     np.savez(
         os.path.join(run_root, 'corrs.npz'),
         **corrs,
