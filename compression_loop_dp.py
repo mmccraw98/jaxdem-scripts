@@ -13,7 +13,7 @@ from correlations import get_pseudo_log_bins_from_steps, translational_correlati
 @dataclass
 class JobConfig:
     seed: int  # random seed
-    can_rotate: bool = True  # whether or not the particles can rotate (NEEDED FOR CLUMPS)
+    can_rotate: bool = False  # whether or not the particles can rotate (NEEDED FOR CLUMPS)
     subtract_drift: bool = True  # whether or not to subtract drift from particle velocities
     delta_phi: float = 1e-2  # amount to compress each step
     target_temperature: float = 1e-5  # target temperature to maintain during compression
@@ -22,12 +22,6 @@ class JobConfig:
     reset_save_decade: int = 100_000  # reset the logarithmic saving scheme each of these decades
 
 def run_1(state, system, output_dir, config, save_strides = None, compress = True, save_fn = None, save_all = False):
-    """
-    Compress a system by a small increment while controlling the temperature with a rescaling thermostat.
-    Allow the system to relax under the thermostat.
-    Remove the thermostat and run NVE dynamics for 10x longer than the preliminary protocol.
-    Save the data and calculate correlation functions FOR 2D ROTATIONS ONLY!
-    """
     if save_all and save_fn is not None:
         raise ValueError('Got incompatible arguments: save_fn passed but save_all is True')
     
@@ -74,28 +68,17 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     with jd.CheckpointWriter(directory=os.path.join(run_root, 'init')) as writer:
         writer.save(state, system)
 
-    perm = jnp.empty_like(state.unique_id)
-    perm = perm.at[state.unique_id].set(jnp.arange(state.N, dtype=state.unique_id.dtype))
-    clump_canonical = state.clump_id[perm]
-    _, clump_offsets = jnp.unique(clump_canonical, return_index=True)
-    idx = perm[clump_offsets]
-
     # define default save fn
     if not save_all and save_fn is None:
         def save_fn(st, sy):
-            # save the dynamics and thermal data for the sorted clump COMs only
             perm = jnp.empty_like(st.unique_id)
             perm = perm.at[st.unique_id].set(jnp.arange(st.unique_id.shape[0], dtype=st.unique_id.dtype))
             return dict(
                 step_count=sy.step_count,
-                pos_c=st.pos_c[perm][clump_offsets],
-                q_w=st.q.w[perm][clump_offsets],
-                q_xyz=st.q.xyz[perm][clump_offsets],
-                vel=st.vel[perm][clump_offsets],
-                ang_vel=st.ang_vel[perm][clump_offsets],
+                pos=st.pos[perm],
+                vel=st.vel[perm],
                 pe=jd.utils.thermal.compute_potential_energy(st, sy),
                 ke=jd.utils.thermal.compute_translational_kinetic_energy(st),
-                ke_r=jd.utils.thermal.compute_rotational_kinetic_energy(st),
             )
 
     # run dynamics
@@ -114,34 +97,30 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
         traj_state, traj_system = logged
 
         # sort the trajectory data before extracting
-        def sort_and_select_clumps(uid, pos_c, q_w, q_xyz, vel, ang_vel):
+        def sort_frame(uid, arr):
             perm = jnp.empty_like(uid)
             perm = perm.at[uid].set(jnp.arange(uid.shape[0], dtype=uid.dtype))
-            idx = perm[clump_offsets]
-            return pos_c[idx], q_w[idx], q_xyz[idx], vel[idx], ang_vel[idx]
-
-        pos_c, q_w, q_xyz, vel, ang_vel = jax.vmap(sort_and_select_clumps)(
-            traj_state.unique_id, traj_state.pos_c,
-            traj_state.q.w, traj_state.q.xyz,
-            traj_state.vel, traj_state.ang_vel,
-        )
+            return arr[perm]
 
         data = dict(
             step_count=traj_system.step_count,
-            pos_c=pos_c,
-            q_w=q_w,
-            q_xyz=q_xyz,
-            vel=vel,
-            ang_vel=ang_vel,
+            pos=jax.vmap(sort_frame)(traj_state.unique_id, traj_state.pos),
+            vel=jax.vmap(sort_frame)(traj_state.unique_id, traj_state.vel),
             pe=jax.vmap(jd.utils.thermal.compute_potential_energy)(traj_state, traj_system),
             ke=jax.vmap(jd.utils.thermal.compute_translational_kinetic_energy)(traj_state),
-            ke_r=jax.vmap(jd.utils.thermal.compute_rotational_kinetic_energy)(traj_state),
         )
 
         jd.utils.h5.save(traj_state, os.path.join(run_root, 'traj_state.h5'))
         jd.utils.h5.save(traj_system, os.path.join(run_root, 'traj_system.h5'))
     else:
         data = logged  # already a dict from save_fn
+    
+    # Reconstruct COM positions and velocities from per-frame component trajectories
+    bond_id_sorted = state.bond_id[jnp.argsort(state.unique_id)]  # sort bond_id since we sort pos and vel
+    N_dps = int(jnp.max(bond_id_sorted)) + 1
+    data['pos_dp'] = jax.vmap(lambda p: compute_com(p, bond_id_sorted, N_dps))(data['pos'])
+    data['vel_dp'] = jax.vmap(lambda v: compute_com(v, bond_id_sorted, N_dps))(data['vel'])
+        
     np.savez(
         os.path.join(run_root, 'traj.npz'),
         **data,
@@ -153,8 +132,8 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     _, nv = jnp.unique(state.clump_id[jnp.argsort(state.unique_id)], return_counts=True)
     for _nv, name, diam in zip([min(nv), max(nv)], ['small', 'large'], [1.0, 1.4]):
         mask = nv == _nv
-        corrs.update(translational_correlations(data['pos_c'][:, mask], diam, bins, name_suffix=f'_{name}'))
-        corrs.update(rotational_correlations_2d(data['q_w'][:, mask], data['q_xyz'][:, mask], _nv, bins, name_suffix=f'_{name}'))
+        corrs.update(translational_correlations(data['pos_dp'][:, mask], diam, bins, name_suffix=f'_{name}'))
+        corrs.update(translational_correlations(data['pos'][:, mask], diam, bins, name_suffix=f'_vertex_{name}'))
     np.savez(
         os.path.join(run_root, 'corrs.npz'),
         **corrs,
@@ -164,3 +143,13 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     with jd.CheckpointWriter(directory=os.path.join(run_root, 'final')) as writer:
         writer.save(state, system)
     return state, system, jnp.mean(data['pe']), run_root
+
+def compute_com(arr, bond_id, N_dps):
+    """Compute center of mass from component array (positions or velocities)."""
+    total = jax.ops.segment_sum(arr, bond_id, num_segments=N_dps)
+    counts = jax.ops.segment_sum(
+        jnp.ones(arr.shape[0], dtype=arr.dtype),
+        bond_id,
+        num_segments=N_dps,
+    )
+    return total / jnp.maximum(counts[:, None], 1.0)
