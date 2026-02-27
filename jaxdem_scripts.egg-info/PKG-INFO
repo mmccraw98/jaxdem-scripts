@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: jaxdem-scripts
+Version: 0.1.0
+Summary: Simulation scripts for JAX-based DEM compression loops and analysis
+Requires-Python: >=3.9
+Requires-Dist: jax
+Requires-Dist: jaxlib
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: tqdm
+Requires-Dist: jaxdem

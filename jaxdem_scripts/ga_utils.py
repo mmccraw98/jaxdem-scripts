@@ -8,7 +8,7 @@ import jaxdem as jd
 
 from jaxdem.utils.geometricAsperityCreation import generate_ga_clump_state
 
-def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, clump_mass, dt, e_int):
+def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, clump_mass, dt, e_int, body_type='solid'):
     """
     Create a bidisperse system of 2D GA clump particles given a desired friction coefficient
     and number of vertices in the small particles.
@@ -26,7 +26,7 @@ def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, 
         phi,
         dim,
         asperity_radius,
-        body_type='solid',
+        body_type=body_type,
         aspect_ratio=aspect_ratio,
         use_uniform_mesh=True,
         mass=clump_mass,
