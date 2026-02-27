@@ -8,7 +8,7 @@ import os
 
 from dataclasses import dataclass
 
-from correlations import get_pseudo_log_bins_from_steps, translational_correlations, rotational_correlations_2d
+from correlations import get_pseudo_log_bins_from_steps, translational_correlations
 
 @dataclass
 class JobConfig:
@@ -23,17 +23,16 @@ class JobConfig:
 
 def run_1(state, system, output_dir, config, save_strides = None, compress = True, save_fn = None, save_all = False):
     """
-    Compress a system of rigid clumps by a small increment while controlling the temperature with a rescaling thermostat.
+    Compress a system of spheres by a small increment while controlling the temperature with a rescaling thermostat.
     Allow the system to relax under the thermostat.
     Remove the thermostat and run NVE dynamics for 10x longer than the preliminary protocol.
     Save the data and calculate correlation functions.
-    IMPORTANT: rotational correlations assume 2D dynamics only!
     IMPORTANT: translational correlations assume 1:1.4 bidispersity
     """
     if save_all and save_fn is not None:
         raise ValueError('Got incompatible arguments: save_fn passed but save_all is True')
-    
-    if save_strides is None:  # define default save strides
+
+    if save_strides is None:
         save_steps = jnp.asarray(jd.utils.make_save_steps_pseudolog(
             num_steps=config.n_steps,
             reset_save_decade=config.reset_save_decade,
@@ -50,57 +49,41 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
         system,
         n=config.n_steps // 20,
         rescale_every=100,
-        temperature_target=config.target_temperature,  # maintain temperature
-        packing_fraction_delta=config.delta_phi * (compress),  # compress
+        temperature_target=config.target_temperature,
+        packing_fraction_delta=config.delta_phi * (compress),
         can_rotate=config.can_rotate,
         subtract_drift=config.subtract_drift,
     )
-    # maintain temperature
     state, system = jd.utils.control_nvt_density(
         state,
         system,
         n=config.n_steps // 20,
         rescale_every=100,
-        temperature_target=config.target_temperature,  # maintain temperature
-        packing_fraction_delta=0.0,  # maintain density
+        temperature_target=config.target_temperature,
+        packing_fraction_delta=0.0,
         can_rotate=config.can_rotate,
         subtract_drift=config.subtract_drift,
     )
     print('Done')
 
-    # create the directories
     phi = jd.utils.packingUtils.compute_packing_fraction(state, system)
     run_root = os.path.join(output_dir, f'phi-{phi:.6f}')
-    
-    # save initial data
+
     with jd.CheckpointWriter(directory=os.path.join(run_root, 'init')) as writer:
         writer.save(state, system)
 
-    perm = jnp.empty_like(state.unique_id)
-    perm = perm.at[state.unique_id].set(jnp.arange(state.N, dtype=state.unique_id.dtype))
-    clump_canonical = state.clump_id[perm]
-    _, clump_offsets = jnp.unique(clump_canonical, return_index=True)
-    idx = perm[clump_offsets]
-
-    # define default save fn
     if not save_all and save_fn is None:
         def save_fn(st, sy):
-            # save the dynamics and thermal data for the sorted clump COMs only
             perm = jnp.empty_like(st.unique_id)
             perm = perm.at[st.unique_id].set(jnp.arange(st.unique_id.shape[0], dtype=st.unique_id.dtype))
             return dict(
                 step_count=sy.step_count,
-                pos_c=st.pos_c[perm][clump_offsets],
-                q_w=st.q.w[perm][clump_offsets],
-                q_xyz=st.q.xyz[perm][clump_offsets],
-                vel=st.vel[perm][clump_offsets],
-                ang_vel=st.ang_vel[perm][clump_offsets],
+                pos=st.pos_c[perm],
+                vel=st.vel[perm],
                 pe=jd.utils.thermal.compute_potential_energy(st, sy),
                 ke=jd.utils.thermal.compute_translational_kinetic_energy(st),
-                ke_r=jd.utils.thermal.compute_rotational_kinetic_energy(st),
             )
 
-    # run dynamics
     print('Running NVE...')
     rollout_kwargs = dict(strides=save_strides)
     if save_fn is not None:
@@ -111,58 +94,45 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     )
     print("Done")
 
-    # save the trajectory data and extract COM data for corrs, if needed
     if save_all:
         traj_state, traj_system = logged
 
-        # sort the trajectory data before extracting
-        def sort_and_select_clumps(uid, pos_c, q_w, q_xyz, vel, ang_vel):
+        def sort_frame(uid, pos, vel):
             perm = jnp.empty_like(uid)
             perm = perm.at[uid].set(jnp.arange(uid.shape[0], dtype=uid.dtype))
-            idx = perm[clump_offsets]
-            return pos_c[idx], q_w[idx], q_xyz[idx], vel[idx], ang_vel[idx]
+            return pos[perm], vel[perm]
 
-        pos_c, q_w, q_xyz, vel, ang_vel = jax.vmap(sort_and_select_clumps)(
-            traj_state.unique_id, traj_state.pos_c,
-            traj_state.q.w, traj_state.q.xyz,
-            traj_state.vel, traj_state.ang_vel,
+        pos, vel = jax.vmap(sort_frame)(
+            traj_state.unique_id, traj_state.pos_c, traj_state.vel,
         )
 
         data = dict(
             step_count=traj_system.step_count,
-            pos_c=pos_c,
-            q_w=q_w,
-            q_xyz=q_xyz,
+            pos=pos,
             vel=vel,
-            ang_vel=ang_vel,
             pe=jax.vmap(jd.utils.thermal.compute_potential_energy)(traj_state, traj_system),
             ke=jax.vmap(jd.utils.thermal.compute_translational_kinetic_energy)(traj_state),
-            ke_r=jax.vmap(jd.utils.thermal.compute_rotational_kinetic_energy)(traj_state),
         )
 
         jd.utils.h5.save(traj_state, os.path.join(run_root, 'traj_state.h5'))
         jd.utils.h5.save(traj_system, os.path.join(run_root, 'traj_system.h5'))
     else:
-        data = logged  # already a dict from save_fn
-    np.savez(
-        os.path.join(run_root, 'traj.npz'),
-        **data,
-    )
+        data = logged
 
-    # calculate the correlation functions for each size
+    np.savez(os.path.join(run_root, 'traj.npz'), **data)
+
+    # correlation functions
     bins, t = get_pseudo_log_bins_from_steps(data['step_count'], system.dt)
     corrs = {'t': t}
-    _, nv = jnp.unique(state.clump_id[jnp.argsort(state.unique_id)], return_counts=True)
-    for _nv, name, diam in zip([min(nv), max(nv)], ['small', 'large'], [1.0, 1.4]):
-        mask = nv == _nv
-        corrs.update(translational_correlations(data['pos_c'][:, mask], diam, bins, name_suffix=f'_{name}'))
-        corrs.update(rotational_correlations_2d(data['q_w'][:, mask], data['q_xyz'][:, mask], _nv, bins, name_suffix=f'_{name}'))
-    np.savez(
-        os.path.join(run_root, 'corrs.npz'),
-        **corrs,
-    )
+    rad_sorted = state.rad[jnp.argsort(state.unique_id)]
+    unique_radii = jnp.unique(rad_sorted)
+    for rad_val, name in zip([jnp.min(unique_radii), jnp.max(unique_radii)], ['small', 'large']):
+        mask = rad_sorted == rad_val
+        diam = float(2.0 * rad_val)
+        corrs.update(translational_correlations(data['pos'][:, mask], diam, bins, name_suffix=f'_{name}'))
 
-    # save the final data
+    np.savez(os.path.join(run_root, 'corrs.npz'), **corrs)
+
     with jd.CheckpointWriter(directory=os.path.join(run_root, 'final')) as writer:
         writer.save(state, system)
     return state, system, jnp.mean(data['pe']), run_root

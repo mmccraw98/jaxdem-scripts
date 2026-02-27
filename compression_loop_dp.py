@@ -28,7 +28,7 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     Remove the thermostat and run NVE dynamics for 10x longer than the preliminary protocol.
     Save the data and calculate correlation functions.
     IMPORTANT: rotational correlations assume 2D dynamics only!
-    IMPORTANT: rotational correlations assume 1:1.4 bidispersity
+    IMPORTANT: translational correlations assume 1:1.4 bidispersity
     """
     if save_all and save_fn is not None:
         raise ValueError('Got incompatible arguments: save_fn passed but save_all is True')
