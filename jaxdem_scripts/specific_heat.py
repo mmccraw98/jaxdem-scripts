@@ -68,6 +68,24 @@ def run_2(state, system, output_dir, config):
 
     _run_for_densities_1(base_state, base_system, output_dir, config, temperatures, delta_phis)
 
+def run_3(state, system, output_dir, config):
+    """
+    Start with initial jammed system, initialize at the minimum temperature, run NVE dynamics to
+    relax initial configuration, then use protocol 2 for measuring the specific heat across
+    various CONSECUTIVE density trials.
+    """
+    state, system = system.collider.compute_force(state, system)  # force the neighbor list to  update
+
+    phi = jd.utils.packingUtils.compute_packing_fraction(state, system)
+    temperatures = jnp.linspace(config.temp_min, config.temp_max, config.n_temperature_steps)
+    delta_phis = - jnp.logspace(jnp.log10(config.delta_phi_min), jnp.log10(phi / 2), config.n_phi_steps)
+
+    state = jd.utils.thermal.set_temperature(state, config.temp_min, config.can_rotate, config.subtract_drift, config.seed)
+    base_state, system = system.step(state, system, n=1_000_000)
+    base_system = _copy_system(base_state, system, config)
+
+    _run_for_densities_2(base_state, base_system, output_dir, config, temperatures, delta_phis)
+
 def _run_for_densities_1(base_state, base_system, output_dir, config, temperatures, delta_phis):
     """
     Take an input state and system (base).
@@ -79,13 +97,18 @@ def _run_for_densities_1(base_state, base_system, output_dir, config, temperatur
     N_clumps = int(jnp.max(base_state.clump_id) + 1)
     phi = jd.utils.packingUtils.compute_packing_fraction(base_state, base_system)
 
-    def save_fn(st, sy):
+    def _save_single(s, y, can_rotate, subtract_drift):
         return (
-            jd.utils.thermal.compute_potential_energy(st, sy),
-            jd.utils.thermal.compute_translational_kinetic_energy(st),
-            jd.utils.thermal.compute_rotational_kinetic_energy(st),
-            jd.utils.thermal.compute_temperature(st, config.can_rotate, config.subtract_drift),
+            jd.utils.thermal.compute_potential_energy(s, y),
+            jd.utils.thermal.compute_translational_kinetic_energy(s),
+            jd.utils.thermal.compute_rotational_kinetic_energy(s),
+            jd.utils.thermal.compute_temperature(s, can_rotate, subtract_drift),
         )
+
+    def save_fn(st, sy):
+        return jax.vmap(
+            _save_single, in_axes=(0, 0, None, None)
+        )(st, sy, config.can_rotate, config.subtract_drift)
 
     for delta_phi in tqdm(delta_phis):
         interm_state, interm_system = jd.utils.packingUtils.scale_to_packing_fraction(base_state, base_system, phi + delta_phi)
@@ -101,6 +124,68 @@ def _run_for_densities_1(base_state, base_system, output_dir, config, temperatur
         )(state, temperatures)
         system = jd.System.stack([interm_system for _ in range(temperatures.size)])
 
+        state, system, logged = system.trajectory_rollout(
+            state, system,
+            n=config.n_steps // config.save_stride,
+            stride=config.save_stride,
+            save_fn=save_fn,
+        )
+
+        pe, ke, ke_r, temp = logged
+
+        np.savez(
+            os.path.join(output_dir, f'thermal_{delta_phi}.npz'),
+            pe=pe,
+            ke=ke,
+            ke_r=ke_r,
+            temp=temp,
+            target_temp=temperatures,
+            delta_phi=delta_phi,
+            N=N_clumps,
+        )
+
+def _run_for_densities_2(base_state, base_system, output_dir, config, temperatures, delta_phis):
+    """
+    Take an input state and system (base).
+    Create n_temperature_steps copies of the state and system, intialize each at the temperatures of interest.
+    Scale all copies to a given packing fraction and run NVE dynamics in parallel.
+    Repeat for n_phi_steps packing fractions, using the input state and system as the initial condition for each step.
+    IMPORTANT: each step in density is done consecutively.
+    """
+    N_clumps = int(jnp.max(base_state.clump_id) + 1)
+    phi = jd.utils.packingUtils.compute_packing_fraction(base_state, base_system)
+
+    def _save_single(s, y, can_rotate, subtract_drift):
+        return (
+            jd.utils.thermal.compute_potential_energy(s, y),
+            jd.utils.thermal.compute_translational_kinetic_energy(s),
+            jd.utils.thermal.compute_rotational_kinetic_energy(s),
+            jd.utils.thermal.compute_temperature(s, can_rotate, subtract_drift),
+        )
+
+    def save_fn(st, sy):
+        return jax.vmap(
+            _save_single, in_axes=(0, 0, None, None)
+        )(st, sy, config.can_rotate, config.subtract_drift)
+
+    state = jd.State.stack([base_state for _ in range(temperatures.size)])
+    system = jd.System.stack([base_system for _ in range(temperatures.size)])
+
+    for delta_phi in tqdm(delta_phis):
+        state, system = jax.vmap(
+            lambda st, sy: jd.utils.packingUtils.scale_to_packing_fraction(st, sy, phi + delta_phi)
+        )(state, system)
+
+        state = jax.vmap(
+            lambda st, temp: jd.utils.thermal.set_temperature(
+                st,
+                temp,
+                config.can_rotate,
+                config.subtract_drift,
+                config.seed,
+            )
+        )(state, temperatures)
+        
         state, system, logged = system.trajectory_rollout(
             state, system,
             n=config.n_steps // config.save_stride,
