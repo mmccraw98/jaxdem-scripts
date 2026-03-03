@@ -6,7 +6,7 @@ from scipy.optimize import minimize_scalar, brentq
 import jax.numpy as jnp
 import jaxdem as jd
 
-from jaxdem.utils.geometricAsperityCreation import generate_ga_clump_state
+from jaxdem.utils.geometricAsperityCreation import generate_ga_clump_state, generate_ga_deformable_state
 
 def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, clump_mass, dt, e_int, body_type='solid'):
     """
@@ -53,6 +53,66 @@ def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, 
         domain_kw=dict(
             box_size=box_size,
         ),
+    )
+    return state, system
+
+def create_bidisperse_ga_dps_2d(N_dps, mu_eff, min_nv, phi, aspect_ratio, dp_mass, dt, e_int, e_m, e_c, e_b, e_l, e_gamma):
+    """
+    Create a bidisperse system of 2D GA DP particles given a desired friction coefficient
+    and number of vertices in the small particles.
+    Accomodates various aspect ratios.
+    e_m: measure elasticity (triangle area in 3d, edge length in 2d)
+    e_c: content elasticity (enclosed volume in 3d, enclosed area in 2d)
+    e_b: bending elasticity
+    e_l: length elasticity (not normalized)
+    e_gamma: surface/line tension
+    """
+    dim = 2
+    particle_radii = jd.utils.dispersity.get_polydisperse_radii(N_dps)
+    asperity_radius = get_closest_vertex_radius_for_mu_eff_2d(mu_eff, min(particle_radii), min_nv)
+    max_nv, max_mu_eff, err = find_num_vertices_for_target_mu_eff_2d(mu_eff, asperity_radius, max(particle_radii))
+    vertex_counts = np.ones_like(particle_radii).astype(int) * min_nv
+    vertex_counts[particle_radii == max(particle_radii)] = max_nv
+    state, dp_container, box_size = generate_ga_deformable_state(
+        particle_radii,
+        vertex_counts,
+        phi,
+        dim,
+        asperity_radius,
+        seed=np.random.randint(0, 1e9),
+        use_uniform_mesh=True,
+        mass=dp_mass,
+        aspect_ratio=aspect_ratio,
+        mesh_type="ico",
+        em=e_m,
+        ec=e_c,
+        eb=e_b,
+        el=e_l,
+        gamma=e_gamma,
+        random_orientations=True,
+    )
+    mats = [jd.Material.create("elastic", young=e_int, poisson=0.5, density=1.0)]
+    matcher = jd.MaterialMatchmaker.create("harmonic")
+    mat_table = jd.MaterialTable.from_materials(mats, matcher=matcher)
+    system = jd.System.create(
+        state_shape=state.shape,
+        dt=dt,
+        linear_integrator_type="verlet",
+        rotation_integrator_type="",
+        domain_type="periodic",
+        force_model_type="spring",
+        collider_type="neighborlist",
+        collider_kw=dict(
+            state=state,
+            cutoff=2.0 * jnp.max(state.rad),
+            skin=0.05,
+            safety_factor=5.0,
+        ),
+        mat_table=mat_table,
+        domain_kw=dict(
+            box_size=box_size,
+        ),
+        bonded_force_model=dp_container,
     )
     return state, system
 

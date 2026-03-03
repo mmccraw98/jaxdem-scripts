@@ -73,6 +73,7 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     run_root = os.path.join(output_dir, f'phi-{phi:.6f}')
     
     # save initial data
+    os.makedirs(os.path.join(run_root, 'init'), exist_ok=True)
     with jd.CheckpointWriter(directory=os.path.join(run_root, 'init')) as writer:
         writer.save(state, system)
 
@@ -149,6 +150,7 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     )
 
     # save the final data
+    os.makedirs(os.path.join(run_root, 'final'), exist_ok=True)
     with jd.CheckpointWriter(directory=os.path.join(run_root, 'final')) as writer:
         writer.save(state, system)
     return state, system, jnp.mean(data['pe']), run_root

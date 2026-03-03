@@ -69,6 +69,7 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     phi = jd.utils.packingUtils.compute_packing_fraction(state, system)
     run_root = os.path.join(output_dir, f'phi-{phi:.6f}')
 
+    os.makedirs(os.path.join(run_root, 'init'), exist_ok=True)
     with jd.CheckpointWriter(directory=os.path.join(run_root, 'init')) as writer:
         writer.save(state, system)
 
@@ -133,6 +134,7 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
 
     np.savez(os.path.join(run_root, 'corrs.npz'), **corrs)
 
+    os.makedirs(os.path.join(run_root, 'final'), exist_ok=True)
     with jd.CheckpointWriter(directory=os.path.join(run_root, 'final')) as writer:
         writer.save(state, system)
     return state, system, jnp.mean(data['pe']), run_root

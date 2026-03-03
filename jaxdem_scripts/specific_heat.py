@@ -33,7 +33,7 @@ class JobConfig:
     temp_max: float = 2e-15  # maximum temperature
     n_temperature_steps: int = 20  # number of temperatures to simultaneously probe
 
-def run_1(state, system, output_dir, config):
+def run_1(state, system, output_dir, config, invert_densities=False):
     """
     Start with initial jammed system, remove rattlers, and use protocol 1 for measuring the specific
     heat across various INDEPENDENT density trials.
@@ -43,6 +43,8 @@ def run_1(state, system, output_dir, config):
     phi = jd.utils.packingUtils.compute_packing_fraction(state, system)
     temperatures = jnp.linspace(config.temp_min, config.temp_max, config.n_temperature_steps)
     delta_phis = - jnp.logspace(jnp.log10(config.delta_phi_min), jnp.log10(phi / 2), config.n_phi_steps)
+    if invert_densities:
+        delta_phis *= -1
 
     state, system, rattler_ids, non_rattler_ids = jd.utils.contacts.get_clump_rattler_ids(state, system)
     base_state = jd.utils.contacts.remove_rattlers_from_state(state, rattler_ids)
@@ -50,7 +52,7 @@ def run_1(state, system, output_dir, config):
 
     _run_for_densities_1(base_state, base_system, output_dir, config, temperatures, delta_phis)
 
-def run_2(state, system, output_dir, config):
+def run_2(state, system, output_dir, config, invert_densities=False):
     """
     Start with initial jammed system, initialize at the minimum temperature, run NVE dynamics to
     relax initial configuration, then use protocol 1 for measuring the specific heat across
@@ -61,6 +63,8 @@ def run_2(state, system, output_dir, config):
     phi = jd.utils.packingUtils.compute_packing_fraction(state, system)
     temperatures = jnp.linspace(config.temp_min, config.temp_max, config.n_temperature_steps)
     delta_phis = - jnp.logspace(jnp.log10(config.delta_phi_min), jnp.log10(phi / 2), config.n_phi_steps)
+    if invert_densities:
+        delta_phis *= -1
 
     state = jd.utils.thermal.set_temperature(state, config.temp_min, config.can_rotate, config.subtract_drift, config.seed)
     base_state, system = system.step(state, system, n=1_000_000)
@@ -68,7 +72,7 @@ def run_2(state, system, output_dir, config):
 
     _run_for_densities_1(base_state, base_system, output_dir, config, temperatures, delta_phis)
 
-def run_3(state, system, output_dir, config):
+def run_3(state, system, output_dir, config, invert_densities=False):
     """
     Start with initial jammed system, initialize at the minimum temperature, run NVE dynamics to
     relax initial configuration, then use protocol 2 for measuring the specific heat across
@@ -79,6 +83,8 @@ def run_3(state, system, output_dir, config):
     phi = jd.utils.packingUtils.compute_packing_fraction(state, system)
     temperatures = jnp.linspace(config.temp_min, config.temp_max, config.n_temperature_steps)
     delta_phis = - jnp.logspace(jnp.log10(config.delta_phi_min), jnp.log10(phi / 2), config.n_phi_steps)
+    if invert_densities:
+        delta_phis *= -1
 
     state = jd.utils.thermal.set_temperature(state, config.temp_min, config.can_rotate, config.subtract_drift, config.seed)
     base_state, system = system.step(state, system, n=1_000_000)
