@@ -47,7 +47,7 @@ def run_1(state, system, output_dir, config, invert_densities=False):
         delta_phis *= -1
 
     state, system, rattler_ids, non_rattler_ids = jd.utils.contacts.get_clump_rattler_ids(state, system)
-    base_state = jd.utils.contacts.remove_rattlers_from_state(state, rattler_ids)
+    base_state, system = jd.utils.contacts.remove_rattlers_from_state(state, system, rattler_ids)
     base_system = _copy_system(base_state, system, config)
 
     _run_for_densities_1(base_state, base_system, output_dir, config, temperatures, delta_phis)
