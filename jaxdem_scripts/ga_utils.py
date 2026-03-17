@@ -56,7 +56,7 @@ def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, 
     )
     return state, system
 
-def create_bidisperse_ga_dps_2d(N_dps, mu_eff, min_nv, phi, aspect_ratio, dp_mass, dt, e_int, e_m, e_c, e_b, e_l, e_gamma):
+def create_bidisperse_ga_dps_2d(N_dps, mu_eff, min_nv, phi, aspect_ratio, dp_mass, dt, e_int, e_m, e_c, e_b, e_l, e_gamma, tau_s = None):
     """
     Create a bidisperse system of 2D GA DP particles given a desired friction coefficient
     and number of vertices in the small particles.
@@ -66,6 +66,7 @@ def create_bidisperse_ga_dps_2d(N_dps, mu_eff, min_nv, phi, aspect_ratio, dp_mas
     e_b: bending elasticity
     e_l: length elasticity (not normalized)
     e_gamma: surface/line tension
+    tau_s: perimeter relaxation timescale
     """
     dim = 2
     particle_radii = jd.utils.dispersity.get_polydisperse_radii(N_dps)
@@ -89,6 +90,7 @@ def create_bidisperse_ga_dps_2d(N_dps, mu_eff, min_nv, phi, aspect_ratio, dp_mas
         eb=e_b,
         el=e_l,
         gamma=e_gamma,
+        tau_s=tau_s,
         random_orientations=True,
     )
     mats = [jd.Material.create("elastic", young=e_int, poisson=0.5, density=1.0)]
