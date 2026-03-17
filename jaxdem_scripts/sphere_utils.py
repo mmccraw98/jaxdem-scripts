@@ -7,7 +7,7 @@ import jaxdem as jd
 
 from jaxdem.utils.randomSphereConfiguration import random_sphere_configuration
 
-def create_spheres(N, dim, phi, aspect_ratio, mass, dt, e_int, force_model='spring'):
+def create_spheres(N, dim, phi, mass, dt, e_int, force_model='spring'):
     """
     Create a bidisperse system of spheres in any dimension
     Accomodates spring and wca potentials
@@ -18,7 +18,7 @@ def create_spheres(N, dim, phi, aspect_ratio, mass, dt, e_int, force_model='spri
     state = jd.State.create(
         pos=pos,
         rad=rad,
-        mass=jnp.ones(pos.shape[0])
+        mass=jnp.ones(pos.shape[0]) * mass,
     )
     if force_model == 'spring':
         mats = [jd.Material.create("elastic", young=e_int, poisson=0.5, density=1.0)]
