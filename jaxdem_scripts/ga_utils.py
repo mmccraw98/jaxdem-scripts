@@ -8,14 +8,14 @@ import jaxdem as jd
 
 from jaxdem.utils.geometricAsperityCreation import generate_ga_clump_state, generate_ga_deformable_state
 
-def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, clump_mass, dt, e_int, body_type='solid'):
+def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, clump_mass, dt, e_int, body_type='solid', size_ratios=(1.0, 1.4), count_ratios=(0.5, 0.5)):
     """
     Create a bidisperse system of 2D GA clump particles given a desired friction coefficient
     and number of vertices in the small particles.
     Accomodates various aspect ratios.
     """
     dim = 2
-    particle_radii = jd.utils.dispersity.get_polydisperse_radii(N_clumps)
+    particle_radii = jd.utils.dispersity.get_polydisperse_radii(N_clumps, size_ratios=size_ratios, count_ratios=count_ratios)
     asperity_radius = get_closest_vertex_radius_for_mu_eff_2d(mu_eff, min(particle_radii), min_nv)
     max_nv, max_mu_eff, err = find_num_vertices_for_target_mu_eff_2d(mu_eff, asperity_radius, max(particle_radii))
     vertex_counts = np.ones_like(particle_radii).astype(int) * min_nv
@@ -56,7 +56,7 @@ def create_bidisperse_ga_clumps_2d(N_clumps, mu_eff, min_nv, phi, aspect_ratio, 
     )
     return state, system
 
-def create_bidisperse_ga_dps_2d(N_dps, mu_eff, min_nv, phi, aspect_ratio, dp_mass, dt, e_int, e_m, e_c, e_b, e_l, e_gamma, tau_s = None):
+def create_bidisperse_ga_dps_2d(N_dps, mu_eff, min_nv, phi, aspect_ratio, dp_mass, dt, e_int, e_m, e_c, e_b, e_l, e_gamma, tau_s = None, size_ratios=(1.0, 1.4), count_ratios=(0.5, 0.5)):
     """
     Create a bidisperse system of 2D GA DP particles given a desired friction coefficient
     and number of vertices in the small particles.
@@ -69,7 +69,7 @@ def create_bidisperse_ga_dps_2d(N_dps, mu_eff, min_nv, phi, aspect_ratio, dp_mas
     tau_s: perimeter relaxation timescale
     """
     dim = 2
-    particle_radii = jd.utils.dispersity.get_polydisperse_radii(N_dps)
+    particle_radii = jd.utils.dispersity.get_polydisperse_radii(N_dps, size_ratios=size_ratios, count_ratios=count_ratios)
     asperity_radius = get_closest_vertex_radius_for_mu_eff_2d(mu_eff, min(particle_radii), min_nv)
     max_nv, max_mu_eff, err = find_num_vertices_for_target_mu_eff_2d(mu_eff, asperity_radius, max(particle_radii))
     vertex_counts = np.ones_like(particle_radii).astype(int) * min_nv
