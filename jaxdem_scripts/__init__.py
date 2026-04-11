@@ -4,3 +4,4 @@ from . import compression_loop_dp
 from . import correlations
 from . import specific_heat
 from . import ga_utils
+from . import sphere_utils

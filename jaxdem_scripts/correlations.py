@@ -3,10 +3,16 @@ jax.config.update("jax_enable_x64", True)
 
 import numpy as np
 import jax.numpy as jnp
-import jaxdem as jd
 
-from jaxdem.analysis import LagBinsPseudoLog, evaluate_binned
-from jaxdem.analysis.kernels import isf_self_isotropic_kernel, msd_kernel, unwrap_angles_2d, msad_kernel_2d, isf_angular_kernel_2d
+from jaxdem.analysis import (
+    LagBinsPseudoLog,
+    evaluate_binned,
+    isf_self_isotropic_kernel,
+    msd_kernel,
+    unwrap_angles_2d,
+    msad_kernel_2d,
+    isf_angular_kernel_2d,
+)
 
 def get_pseudo_log_bins_from_steps(steps, dt):
     """
@@ -25,7 +31,7 @@ def get_pseudo_log_bins_from_steps(steps, dt):
     return bins, t
 
 def translational_correlations(pos, diam, bins, name_suffix=''):
-    """
+    r"""
     Calculate correlations for translation motion:
     MSD: < r(t+dt) \dot r(t) > (dt)
     ISF: < exp( i 2 \pi ( r(t+dt) - r(t) ) / diam ) > (dt)
@@ -42,7 +48,7 @@ def translational_correlations(pos, diam, bins, name_suffix=''):
     return corrs
 
 def rotational_correlations_2d(q_w, q_xyz, n, bins, name_suffix=''):
-    """
+    r"""
     Calculate correlations for rotational motion - ONLY WORKS IN 2D:
     MSAD: < \theta(t+dt) \theta(t) > (dt)
     AISF: < cos( n (\theta(t+dt) - \theta(t)) ) > (dt)

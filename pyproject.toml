@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "jaxdem-scripts"
 version = "0.1.0"
 description = "Simulation scripts for JAX-based DEM compression loops and analysis"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "jax",
     "jaxlib",

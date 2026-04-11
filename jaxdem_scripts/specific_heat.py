@@ -46,7 +46,7 @@ def run_1(state, system, output_dir, config, invert_densities=False):
     if invert_densities:
         delta_phis *= -1
 
-    state, system, rattler_ids, non_rattler_ids = jd.utils.contacts.get_clump_rattler_ids(state, system)
+    state, system, rattler_ids, _ = jd.utils.contacts.get_clump_rattler_ids(state, system)
     base_state, system = jd.utils.contacts.remove_rattlers_from_state(state, system, rattler_ids)
     base_system = _copy_system(base_state, system, config)
 
@@ -198,8 +198,9 @@ def _run_for_densities_2(base_state, base_system, output_dir, config, temperatur
     system = jd.System.stack([base_system for _ in range(temperatures.size)])
 
     for delta_phi in tqdm(delta_phis):
+        target_phi = phi + delta_phi
         state, system = jax.vmap(
-            lambda st, sy: jd.utils.packingUtils.scale_to_packing_fraction(st, sy, phi + delta_phi)
+            lambda st, sy: jd.utils.packingUtils.scale_to_packing_fraction(st, sy, target_phi)
         )(state, system)
 
         state = jax.vmap(
@@ -275,8 +276,9 @@ def _run_for_densities_3(base_state, base_system, output_dir, config, temperatur
     system = jd.System.stack([base_system for _ in range(temperatures.size)])
 
     for delta_phi in tqdm(delta_phis):
+        target_phi = phi + delta_phi
         state, system = jax.vmap(
-            lambda st, sy: jd.utils.packingUtils.scale_to_packing_fraction(st, sy, phi + delta_phi)
+            lambda st, sy: jd.utils.packingUtils.scale_to_packing_fraction(st, sy, target_phi)
         )(state, system)
 
         state = jax.vmap(
@@ -313,25 +315,34 @@ def _copy_system(state, system, config):
     """
     Create a new system object for a modified state, giving an existing system.
     """
-    mats = [jd.Material.create("elastic", young=config.e_int, poisson=0.5, density=1.0)]
-    matcher = jd.MaterialMatchmaker.create("harmonic")
-    mat_table = jd.MaterialTable.from_materials(mats, matcher=matcher)
+    domain_kw = {}
+    if hasattr(system.domain, "box_size"):
+        domain_kw["box_size"] = system.domain.box_size
+    if hasattr(system.domain, "anchor"):
+        domain_kw["anchor"] = system.domain.anchor
+
+    collider_kw = {}
+    if system.collider.type_name == "neighborlist":
+        collider_kw = dict(
+            state=state,
+            cutoff=system.collider.cutoff,
+            skin=system.collider.skin,
+            max_neighbors=system.collider.max_neighbors,
+        )
+        if hasattr(system.collider, "cell_list"):
+            collider_kw["secondary_collider_type"] = system.collider.cell_list.type_name
+
     return jd.System.create(
         state_shape=state.shape,
         dt=config.dt,
-        linear_integrator_type="verlet",
-        rotation_integrator_type="verletspiral",
-        domain_type="periodic",
-        force_model_type="spring",
-        collider_type="neighborlist",
-        collider_kw=dict(
-            state=state,
-            cutoff=2.0 * jnp.max(state.rad),
-            skin=0.05,
-            safety_factor=5.0,
-        ),
-        mat_table=mat_table,
-        domain_kw=dict(
-            box_size=system.domain.box_size,
-        ),
+        linear_integrator_type=system.linear_integrator.type_name,
+        rotation_integrator_type=system.rotation_integrator.type_name,
+        domain_type=system.domain.type_name,
+        force_model_type=system.force_model.type_name,
+        collider_type=system.collider.type_name,
+        collider_kw=collider_kw,
+        mat_table=system.mat_table,
+        bonded_force_model=system.bonded_force_model,
+        force_manager_kw=dict(gravity=system.force_manager.gravity),
+        domain_kw=domain_kw,
     )
