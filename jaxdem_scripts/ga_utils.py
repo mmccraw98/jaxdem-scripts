@@ -7,110 +7,10 @@ import jax.numpy as jnp
 import jaxdem as jd
 from typing import Any, Optional
 
-from jaxdem.utils import generate_ga_clump_state, generate_ga_deformable_state
-
-
-def _build_mat_table(
-    *,
-    mat_table=None,
-    material_type: str = "elastic",
-    material_kwargs: Optional[dict[str, Any]] = None,
-    matcher_type: str = "harmonic",
-    matcher_kwargs: Optional[dict[str, Any]] = None,
-):
-    if mat_table is not None:
-        return mat_table
-
-    material = jd.Material.create(material_type, **dict(material_kwargs or {}))
-    matcher = jd.MaterialMatchmaker.create(matcher_type, **dict(matcher_kwargs or {}))
-    return jd.MaterialTable.from_materials([material], matcher=matcher)
-
-
-def _normalize_bonded_force_model_type(
-    bonded_force_model_type: Optional[str],
-    tau_s,
-) -> str:
-    if bonded_force_model_type is None:
-        return (
-            "PlasticDeformableParticleModel"
-            if tau_s is not None
-            else "DeformableParticleModel"
-        )
-
-    aliases = {
-        "elastic": "DeformableParticleModel",
-        "deformable": "DeformableParticleModel",
-        "plastic": "PlasticDeformableParticleModel",
-    }
-    return aliases.get(bonded_force_model_type, bonded_force_model_type)
-
-
-def _coerce_ga_dp_container(
-    state,
-    container,
-    *,
-    bonded_force_model_type: Optional[str] = None,
-    bonded_force_model_kwargs: Optional[dict[str, Any]] = None,
-    tau_s=None,
-):
-    bonded_force_model_type = _normalize_bonded_force_model_type(
-        bonded_force_model_type, tau_s
-    )
-    bonded_force_model_kwargs = dict(bonded_force_model_kwargs or {})
-    tau_s_kw = bonded_force_model_kwargs.pop("tau_s", tau_s)
-
-    if bonded_force_model_type == "DeformableParticleModel":
-        if tau_s_kw is not None:
-            raise ValueError(
-                "Got `tau_s`, but `bonded_force_model_type` resolves to "
-                "`DeformableParticleModel`. Use the plastic model instead."
-            )
-        if bonded_force_model_kwargs:
-            unexpected = ", ".join(sorted(bonded_force_model_kwargs))
-            raise ValueError(
-                f"Unsupported bonded_force_model_kwargs for elastic GA DPs: {unexpected}"
-            )
-        return container
-
-    if bonded_force_model_type != "PlasticDeformableParticleModel":
-        raise ValueError(
-            "Unsupported bonded_force_model_type "
-            f"`{bonded_force_model_type}`. Expected one of "
-            "`DeformableParticleModel`, `PlasticDeformableParticleModel`, "
-            "`elastic`, `deformable`, or `plastic`."
-        )
-
-    if tau_s_kw is None:
-        raise ValueError(
-            "`PlasticDeformableParticleModel` requires `tau_s` either directly "
-            "or via bonded_force_model_kwargs."
-        )
-    if bonded_force_model_kwargs:
-        unexpected = ", ".join(sorted(bonded_force_model_kwargs))
-        raise ValueError(
-            f"Unsupported bonded_force_model_kwargs for plastic GA DPs: {unexpected}"
-        )
-
-    return jd.BondedForceModel.create(
-        "PlasticDeformableParticleModel",
-        vertices=state.pos,
-        elements=container.elements,
-        edges=container.edges,
-        element_adjacency=container.element_adjacency,
-        element_adjacency_edges=container.element_adjacency_edges,
-        elements_id=container.elements_id,
-        initial_body_contents=container.initial_body_contents,
-        initial_element_measures=container.initial_element_measures,
-        initial_edge_lengths=container.initial_edge_lengths,
-        initial_bendings=container.initial_bendings,
-        em=container.em,
-        ec=container.ec,
-        eb=container.eb,
-        el=container.el,
-        gamma=container.gamma,
-        tau_s=tau_s_kw,
-        w_b=container.w_b,
-    )
+from jaxdem.utils.geometricAsperityCreation import (
+    generate_ga_clump_state,
+    generate_ga_deformable_state,
+)
 
 def create_bidisperse_ga_clumps_2d(
     N_clumps,
@@ -153,17 +53,14 @@ def create_bidisperse_ga_clumps_2d(
         mass=clump_mass,
         seed=np.random.randint(0, 1e9),
     )
-    mat_table = _build_mat_table(
-        mat_table=mat_table,
-        material_type=material_type,
-        material_kwargs=(
-            dict(young=e_int, poisson=0.5, density=1.0)
-            if material_kwargs is None
-            else material_kwargs
-        ),
-        matcher_type=matcher_type,
-        matcher_kwargs=matcher_kwargs,
-    )
+    if mat_table is None:
+        if material_kwargs is None:
+            material_kwargs = dict(young=e_int, poisson=0.5, density=1.0)
+        material = jd.Material.create(material_type, **dict(material_kwargs))
+        matcher = jd.MaterialMatchmaker.create(
+            matcher_type, **dict(matcher_kwargs or {})
+        )
+        mat_table = jd.MaterialTable.from_materials([material], matcher=matcher)
     system = jd.System.create(
         state_shape=state.shape,
         dt=dt,
@@ -221,6 +118,38 @@ def create_bidisperse_ga_dps_2d(
     e_gamma: surface/line tension
     tau_s: perimeter relaxation timescale
     """
+    if bonded_force_model_type is None:
+        bonded_force_model_type = "DeformableParticleModel"
+
+    plasticity_type = None
+    if bonded_force_model_type == "DeformableParticleModel":
+        if tau_s is not None:
+            raise ValueError(
+                "`tau_s` was provided, but `bonded_force_model_type` is "
+                "`DeformableParticleModel`."
+            )
+    elif bonded_force_model_type == "PlasticDeformableParticleModel":
+        plasticity_type = "edge"
+    elif bonded_force_model_type == "PlasticPerimeterDeformableParticleModel":
+        plasticity_type = "perimeter"
+    elif bonded_force_model_type == "PlasticBendingDeformableParticleModel":
+        plasticity_type = "bending"
+    else:
+        raise ValueError(
+            "Unsupported bonded_force_model_type "
+            f"`{bonded_force_model_type}`. Expected one of "
+            "`DeformableParticleModel`, `PlasticDeformableParticleModel`, "
+            "`PlasticPerimeterDeformableParticleModel`, or "
+            "`PlasticBendingDeformableParticleModel`."
+        )
+
+    if bonded_force_model_kwargs:
+        unexpected = ", ".join(sorted(bonded_force_model_kwargs))
+        raise ValueError(
+            "generate_ga_deformable_state now handles plastic model selection "
+            f"directly; unsupported bonded_force_model_kwargs: {unexpected}"
+        )
+
     dim = 2
     particle_radii = jd.utils.dispersity.get_polydisperse_radii(N_dps, size_ratios=size_ratios, count_ratios=count_ratios)
     asperity_radius = get_closest_vertex_radius_for_mu_eff_2d(mu_eff, min(particle_radii), min_nv)
@@ -243,26 +172,19 @@ def create_bidisperse_ga_dps_2d(
         eb=e_b,
         el=e_l,
         gamma=e_gamma,
-        random_orientations=True,
-    )
-    dp_container = _coerce_ga_dp_container(
-        state,
-        dp_container,
-        bonded_force_model_type=bonded_force_model_type,
-        bonded_force_model_kwargs=bonded_force_model_kwargs,
         tau_s=tau_s,
+        random_orientations=True,
+        plasticity_type=plasticity_type,
     )
-    mat_table = _build_mat_table(
-        mat_table=mat_table,
-        material_type=material_type,
-        material_kwargs=(
-            dict(young=e_int, poisson=0.5, density=1.0)
-            if material_kwargs is None
-            else material_kwargs
-        ),
-        matcher_type=matcher_type,
-        matcher_kwargs=matcher_kwargs,
-    )
+
+    if mat_table is None:
+        if material_kwargs is None:
+            material_kwargs = dict(young=e_int, poisson=0.5, density=1.0)
+        material = jd.Material.create(material_type, **dict(material_kwargs))
+        matcher = jd.MaterialMatchmaker.create(
+            matcher_type, **dict(matcher_kwargs or {})
+        )
+        mat_table = jd.MaterialTable.from_materials([material], matcher=matcher)
     system = jd.System.create(
         state_shape=state.shape,
         dt=dt,

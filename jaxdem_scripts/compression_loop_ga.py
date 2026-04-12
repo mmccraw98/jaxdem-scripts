@@ -74,8 +74,8 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
     
     # save initial data
     os.makedirs(os.path.join(run_root, 'init'), exist_ok=True)
-    with jd.CheckpointWriter(directory=os.path.join(run_root, 'init')) as writer:
-        writer.save(state, system)
+    jd.utils.h5.save(state, os.path.join(run_root, 'init', 'state.h5'))
+    jd.utils.h5.save(system, os.path.join(run_root, 'init', 'system.h5'))
 
     perm = jnp.empty_like(state.unique_id)
     perm = perm.at[state.unique_id].set(jnp.arange(state.N, dtype=state.unique_id.dtype))
@@ -165,6 +165,6 @@ def run_1(state, system, output_dir, config, save_strides = None, compress = Tru
 
     # save the final data
     os.makedirs(os.path.join(run_root, 'final'), exist_ok=True)
-    with jd.CheckpointWriter(directory=os.path.join(run_root, 'final')) as writer:
-        writer.save(state, system)
+    jd.utils.h5.save(state, os.path.join(run_root, 'final', 'state.h5'))
+    jd.utils.h5.save(system, os.path.join(run_root, 'final', 'system.h5'))
     return state, system, jnp.mean(data['pe']), run_root
